@@ -6,17 +6,15 @@ export async function middleware(request: NextRequest) {
     request,
   })
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
   const pathname = request.nextUrl.pathname
 
-  // Handle root URL redirect
   if (pathname === '/') {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  // Gracefully handle missing environment variables without crashing Vercel middleware
   if (!supabaseUrl || !supabaseAnonKey) {
     return supabaseResponse
   }
@@ -47,7 +45,6 @@ export async function middleware(request: NextRequest) {
       data: { user },
     } = await supabase.auth.getUser()
 
-    // Public paths
     if (
       pathname.startsWith('/login') ||
       pathname.startsWith('/auth') ||
@@ -62,7 +59,6 @@ export async function middleware(request: NextRequest) {
       return supabaseResponse
     }
 
-    // Protected paths require authentication
     if (!user) {
       const url = request.nextUrl.clone()
       url.pathname = '/login'
