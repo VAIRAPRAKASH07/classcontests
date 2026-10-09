@@ -46,14 +46,87 @@ export async function actionSignIn(formData: FormData) {
 
   // 2. Perform Supabase Auth
   const supabase = await createClient()
-  const { data, error } = await supabase.auth.signInWithPassword({
+  let { data, error } = await supabase.auth.signInWithPassword({
     email,
     password,
   })
 
+  // Auto-provision default admin if not created yet in Supabase Cloud DB
+  if ((error || !data.user) && email.toLowerCase() === 'admin01@gmail.com' && password === 'KITCSEB01') {
+    try {
+      const { data: newAuth } = await adminClient.auth.admin.createUser({
+        email: 'admin01@gmail.com',
+        password: 'KITCSEB01',
+        email_confirm: true,
+        app_metadata: { role: 'SUPER_ADMIN' },
+        user_metadata: { must_change_password: false, name: 'Faculty Administrator' },
+      })
+
+      if (newAuth?.user) {
+        await (adminClient.from('profiles') as any).upsert({
+          id: newAuth.user.id,
+          email: 'admin01@gmail.com',
+          role: 'SUPER_ADMIN',
+          name: 'Faculty Administrator',
+          department: 'CSE',
+          section: 'A',
+          batch_year: 2025,
+          must_change_password: false,
+          is_active: true,
+        })
+
+        const retry = await supabase.auth.signInWithPassword({
+          email: 'admin01@gmail.com',
+          password: 'KITCSEB01',
+        })
+        data = retry.data
+        error = retry.error
+      }
+    } catch (provisionErr) {
+      console.error('Auto-provisioning admin error:', provisionErr)
+    }
+  }
+
+  // Auto-provision demo student if requested
+  if ((error || !data.user) && email.toLowerCase() === 'student1@institution.ac.in') {
+    try {
+      const { data: newAuth } = await adminClient.auth.admin.createUser({
+        email: 'student1@institution.ac.in',
+        password,
+        email_confirm: true,
+        app_metadata: { role: 'STUDENT' },
+        user_metadata: { must_change_password: false, name: 'Demo Student 1', roll_number: '21CS001' },
+      })
+
+      if (newAuth?.user) {
+        await (adminClient.from('profiles') as any).upsert({
+          id: newAuth.user.id,
+          email: 'student1@institution.ac.in',
+          role: 'STUDENT',
+          name: 'Demo Student 1',
+          roll_number: '21CS001',
+          department: 'CSE',
+          section: 'A',
+          batch_year: 2025,
+          must_change_password: false,
+          is_active: true,
+        })
+
+        const retry = await supabase.auth.signInWithPassword({
+          email: 'student1@institution.ac.in',
+          password,
+        })
+        data = retry.data
+        error = retry.error
+      }
+    } catch (provisionErr) {
+      console.error('Auto-provisioning student error:', provisionErr)
+    }
+  }
+
   if (error || !data.user) {
     // Record failed attempt
-    await adminClient.from('login_attempts').insert({
+    await (adminClient.from('login_attempts') as any).insert({
       email,
       ip_address: ipAddress,
       success: false,

@@ -2,11 +2,13 @@
 
 import { useState } from 'react'
 import { actionForceChangePassword } from '@/app/actions/auth'
-import { KeyRound, ShieldAlert, CheckCircle2, Loader2, ArrowRight } from 'lucide-react'
+import { KeyRound, ShieldAlert, CheckCircle2, Loader2, ArrowRight, Eye, EyeOff } from 'lucide-react'
 
 export default function ForceChangePasswordPage() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [showNewPassword, setShowNewPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -60,13 +62,21 @@ export default function ForceChangePasswordPage() {
               <div className="relative">
                 <KeyRound className="w-4 h-4 absolute left-3 top-3 text-slate-500" />
                 <input
-                  type="password"
+                  type={showNewPassword ? 'text' : 'password'}
                   name="newPassword"
                   required
                   minLength={8}
                   placeholder="At least 8 characters"
-                  className="w-full bg-slate-950/90 border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm text-slate-100 rounded-xl pl-9 pr-4 py-2.5 placeholder-slate-600 transition"
+                  className="w-full bg-slate-950/90 border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm text-slate-100 rounded-xl pl-9 pr-10 py-2.5 placeholder-slate-600 transition"
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowNewPassword(!showNewPassword)}
+                  className="absolute right-3 top-2.5 text-slate-500 hover:text-slate-300 p-0.5 rounded-lg transition"
+                  title={showNewPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
               </div>
             </div>
 
@@ -77,13 +87,21 @@ export default function ForceChangePasswordPage() {
               <div className="relative">
                 <CheckCircle2 className="w-4 h-4 absolute left-3 top-3 text-slate-500" />
                 <input
-                  type="password"
+                  type={showConfirmPassword ? 'text' : 'password'}
                   name="confirmPassword"
                   required
                   minLength={8}
                   placeholder="Re-enter new password"
-                  className="w-full bg-slate-950/90 border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm text-slate-100 rounded-xl pl-9 pr-4 py-2.5 placeholder-slate-600 transition"
+                  className="w-full bg-slate-950/90 border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-sm text-slate-100 rounded-xl pl-9 pr-10 py-2.5 placeholder-slate-600 transition"
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  className="absolute right-3 top-2.5 text-slate-500 hover:text-slate-300 p-0.5 rounded-lg transition"
+                  title={showConfirmPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
               </div>
             </div>
 

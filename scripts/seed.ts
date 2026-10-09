@@ -17,14 +17,14 @@ async function seedData() {
 
   // 1. Create Admins
   const admins = [
-    { email: 'admin@institution.ac.in', name: 'Dr. Ramesh Kumar', role: 'ADMIN' },
-    { email: 'superadmin@institution.ac.in', name: 'Prof. Ananya Sen', role: 'SUPER_ADMIN' },
+    { email: 'admin01@gmail.com', name: 'Faculty Administrator', role: 'SUPER_ADMIN', password: 'KITCSEB01' },
+    { email: 'admin@institution.ac.in', name: 'Dr. Ramesh Kumar', role: 'ADMIN', password: 'AdminPassword#2025' },
   ]
 
   for (const adm of admins) {
     const { data: authUser } = await supabase.auth.admin.createUser({
       email: adm.email,
-      password: 'AdminPassword#2025',
+      password: adm.password,
       email_confirm: true,
       app_metadata: { role: adm.role },
       user_metadata: { must_change_password: false, name: adm.name },
