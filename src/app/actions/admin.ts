@@ -109,7 +109,7 @@ export async function actionCreateStudent(formData: FormData) {
     }
 
     // 2. Insert Profiles row
-    const { error: profileError } = await adminClient.from('profiles').insert({
+    const { error: profileError } = await (adminClient.from('profiles') as any).insert({
       id: authUser.user.id,
       email,
       role: 'STUDENT',
@@ -125,6 +125,12 @@ export async function actionCreateStudent(formData: FormData) {
     if (profileError) {
       // Rollback auth user creation if profile insert fails
       await adminClient.auth.admin.deleteUser(authUser.user.id)
+      if (profileError.message.includes('schema cache')) {
+        return {
+          success: false,
+          error: 'Database tables not initialized in Supabase yet. Please run the SQL migration script in your Supabase SQL Editor.',
+        }
+      }
       return { success: false, error: profileError.message }
     }
 

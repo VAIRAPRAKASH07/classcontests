@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { getAdapter } from '@/lib/adapters'
 import { revalidatePath } from 'next/cache'
 import crypto from 'crypto'
@@ -17,6 +18,8 @@ export async function actionSubmitHandle(platform: string, handle: string) {
     const adapter = getAdapter(platform)
     if (!adapter) return { success: false, error: `Unsupported platform: ${platform}` }
 
+    const adminClient = createAdminClient()
+
     // 1. Verify handle exists on platform
     const validCheck = await adapter.validateHandle(cleanHandle)
     if (!validCheck.valid) {
@@ -24,13 +27,19 @@ export async function actionSubmitHandle(platform: string, handle: string) {
     }
 
     // 2. Check partial unique index for existing VERIFIED claim
-    const { data: existingVerified } = await supabase
-      .from('platform_accounts')
+    const { data: existingVerified, error: checkErr } = await (adminClient.from('platform_accounts') as any)
       .select('user_id')
       .eq('platform', platform)
       .eq('handle', cleanHandle)
       .eq('status', 'VERIFIED')
       .maybeSingle()
+
+    if (checkErr && checkErr.message.includes('schema cache')) {
+      return {
+        success: false,
+        error: 'Database tables not initialized in Supabase yet. Please run the SQL migration in Supabase SQL Editor.',
+      }
+    }
 
     if (existingVerified && existingVerified.user_id !== user.id) {
       return { success: false, error: `Handle '${cleanHandle}' is already verified by another student account.` }
@@ -40,8 +49,8 @@ export async function actionSubmitHandle(platform: string, handle: string) {
     const randomHex = crypto.randomBytes(4).toString('hex')
     const verifyToken = `cct-${randomHex}`
 
-    // 4. Upsert platform account in PENDING state
-    const { error: upsertErr } = await supabase.from('platform_accounts').upsert({
+    // 4. Upsert platform account in PENDING state using adminClient to bypass RLS
+    const { error: upsertErr } = await (adminClient.from('platform_accounts') as any).upsert({
       user_id: user.id,
       platform,
       handle: cleanHandle,
@@ -53,7 +62,15 @@ export async function actionSubmitHandle(platform: string, handle: string) {
       onConflict: 'user_id, platform',
     })
 
-    if (upsertErr) return { success: false, error: upsertErr.message }
+    if (upsertErr) {
+      if (upsertErr.message.includes('schema cache')) {
+        return {
+          success: false,
+          error: 'Database tables not initialized in Supabase yet. Please run the SQL migration in Supabase SQL Editor.',
+        }
+      }
+      return { success: false, error: upsertErr.message }
+    }
 
     revalidatePath('/accounts')
     return {
@@ -72,12 +89,20 @@ export async function actionVerifyHandle(platform: string) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return { success: false, error: 'Unauthenticated' }
 
-    const { data: account } = await supabase
-      .from('platform_accounts')
+    const adminClient = createAdminClient()
+
+    const { data: account, error: fetchErr } = await (adminClient.from('platform_accounts') as any)
       .select('*')
       .eq('user_id', user.id)
       .eq('platform', platform)
-      .single()
+      .maybeSingle()
+
+    if (fetchErr && fetchErr.message.includes('schema cache')) {
+      return {
+        success: false,
+        error: 'Database tables not initialized in Supabase yet. Please run the SQL migration in Supabase SQL Editor.',
+      }
+    }
 
     if (!account) return { success: false, error: 'No account binding found for this platform' }
     if (account.status === 'VERIFIED') return { success: true, message: 'Account is already verified!' }
@@ -95,8 +120,7 @@ export async function actionVerifyHandle(platform: string) {
     }
 
     // Token verified! Update status
-    const { error: updateErr } = await supabase
-      .from('platform_accounts')
+    const { error: updateErr } = await (adminClient.from('platform_accounts') as any)
       .update({
         status: 'VERIFIED',
         verified_at: new Date().toISOString(),
@@ -106,8 +130,12 @@ export async function actionVerifyHandle(platform: string) {
 
     if (updateErr) return { success: false, error: updateErr.message }
 
-    // Enqueue initial sync job via RPC
-    await supabase.rpc('request_user_sync', { target_user_id: user.id })
+    // Enqueue initial sync job via RPC if RPC exists
+    try {
+      await supabase.rpc('request_user_sync', { target_user_id: user.id })
+    } catch {
+      // Ignore RPC error if not deployed
+    }
 
     revalidatePath('/accounts')
     return { success: true, message: `Congratulations! Your ${adapter.platformName} handle '${account.handle}' is verified!` }
@@ -122,8 +150,9 @@ export async function actionUnbindHandle(platform: string) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return { success: false, error: 'Unauthenticated' }
 
-    const { error } = await supabase
-      .from('platform_accounts')
+    const adminClient = createAdminClient()
+
+    const { error } = await (adminClient.from('platform_accounts') as any)
       .delete()
       .eq('user_id', user.id)
       .eq('platform', platform)

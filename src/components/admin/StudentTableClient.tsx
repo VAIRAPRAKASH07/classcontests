@@ -26,9 +26,12 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 
+import { useRouter } from 'next/navigation'
+
 type ProfileRow = Database['public']['Tables']['profiles']['Row']
 
 export function StudentTableClient({ initialStudents }: { initialStudents: ProfileRow[] }) {
+  const router = useRouter()
   const [students, setStudents] = useState<ProfileRow[]>(initialStudents)
   const [searchTerm, setSearchTerm] = useState('')
   const [filterDept, setFilterDept] = useState('ALL')
@@ -76,6 +79,7 @@ export function StudentTableClient({ initialStudents }: { initialStudents: Profi
     if (result.success) {
       setMessage({ type: 'success', text: result.message || 'Student added successfully' })
       setShowAddModal(false)
+      router.refresh()
     } else {
       setMessage({ type: 'error', text: result.error || 'Failed to add student' })
     }
