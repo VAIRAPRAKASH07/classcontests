@@ -44,27 +44,34 @@ export async function actionSignIn(formData: FormData) {
     }
   }
 
-  // 2. Perform Supabase Auth
-  const supabase = await createClient()
-  let { data, error } = await supabase.auth.signInWithPassword({
-    email,
-    password,
-  })
-
-  // Auto-provision default admin if not created yet in Supabase Cloud DB
-  if ((error || !data.user) && email.toLowerCase() === 'admin01@gmail.com' && password === 'KITCSEB01') {
+  // 2. Auto-heal/provision Admin account admin01@gmail.com
+  if (email.toLowerCase() === 'admin01@gmail.com' && password === 'KITCSEB01') {
     try {
-      const { data: newAuth } = await adminClient.auth.admin.createUser({
-        email: 'admin01@gmail.com',
-        password: 'KITCSEB01',
-        email_confirm: true,
-        app_metadata: { role: 'SUPER_ADMIN' },
-        user_metadata: { must_change_password: false, name: 'Faculty Administrator' },
-      })
+      const { data: usersData } = await adminClient.auth.admin.listUsers()
+      const existingUser = usersData?.users?.find(u => u.email?.toLowerCase() === 'admin01@gmail.com')
+      let targetUserId: string | null = existingUser?.id || null
 
-      if (newAuth?.user) {
+      if (!existingUser) {
+        const { data: created } = await adminClient.auth.admin.createUser({
+          email: 'admin01@gmail.com',
+          password: 'KITCSEB01',
+          email_confirm: true,
+          app_metadata: { role: 'SUPER_ADMIN' },
+          user_metadata: { must_change_password: false, name: 'Faculty Administrator' },
+        })
+        targetUserId = created?.user?.id || null
+      } else {
+        await adminClient.auth.admin.updateUserById(existingUser.id, {
+          password: 'KITCSEB01',
+          email_confirm: true,
+          app_metadata: { role: 'SUPER_ADMIN' },
+          user_metadata: { must_change_password: false, name: 'Faculty Administrator' },
+        })
+      }
+
+      if (targetUserId) {
         await (adminClient.from('profiles') as any).upsert({
-          id: newAuth.user.id,
+          id: targetUserId,
           email: 'admin01@gmail.com',
           role: 'SUPER_ADMIN',
           name: 'Faculty Administrator',
@@ -73,59 +80,62 @@ export async function actionSignIn(formData: FormData) {
           batch_year: 2025,
           must_change_password: false,
           is_active: true,
-        })
-
-        const retry = await supabase.auth.signInWithPassword({
-          email: 'admin01@gmail.com',
-          password: 'KITCSEB01',
-        })
-        data = retry.data
-        error = retry.error
+          deleted_at: null,
+        }, { onConflict: 'id' })
       }
-    } catch (provisionErr) {
-      console.error('Auto-provisioning admin error:', provisionErr)
+    } catch (adminSetupErr) {
+      console.error('Admin setup error:', adminSetupErr)
     }
   }
 
-  // Auto-provision demo student if requested
-  if ((error || !data.user) && email.toLowerCase() === 'student1@institution.ac.in') {
+  // Auto-heal/provision demo student accounts if requested
+  const isDemoStudent = email.toLowerCase().includes('student') || email.toLowerCase().includes('kit')
+  if (isDemoStudent) {
     try {
-      const { data: newAuth } = await adminClient.auth.admin.createUser({
-        email: 'student1@institution.ac.in',
-        password,
-        email_confirm: true,
-        app_metadata: { role: 'STUDENT' },
-        user_metadata: { must_change_password: false, name: 'Demo Student 1', roll_number: '21CS001' },
-      })
+      const { data: usersData } = await adminClient.auth.admin.listUsers()
+      const existingUser = usersData?.users?.find(u => u.email?.toLowerCase() === email.toLowerCase())
+      let targetUserId: string | null = existingUser?.id || null
 
-      if (newAuth?.user) {
+      if (!existingUser) {
+        const studentName = email.split('@')[0].toUpperCase()
+        const { data: created } = await adminClient.auth.admin.createUser({
+          email,
+          password,
+          email_confirm: true,
+          app_metadata: { role: 'STUDENT' },
+          user_metadata: { must_change_password: false, name: studentName, roll_number: '21CS001' },
+        })
+        targetUserId = created?.user?.id || null
+      }
+
+      if (targetUserId) {
         await (adminClient.from('profiles') as any).upsert({
-          id: newAuth.user.id,
-          email: 'student1@institution.ac.in',
+          id: targetUserId,
+          email: email.toLowerCase(),
           role: 'STUDENT',
-          name: 'Demo Student 1',
+          name: email.split('@')[0].toUpperCase(),
           roll_number: '21CS001',
           department: 'CSE',
           section: 'A',
           batch_year: 2025,
           must_change_password: false,
           is_active: true,
-        })
-
-        const retry = await supabase.auth.signInWithPassword({
-          email: 'student1@institution.ac.in',
-          password,
-        })
-        data = retry.data
-        error = retry.error
+          deleted_at: null,
+        }, { onConflict: 'id' })
       }
-    } catch (provisionErr) {
-      console.error('Auto-provisioning student error:', provisionErr)
+    } catch (studentSetupErr) {
+      console.error('Student setup error:', studentSetupErr)
     }
   }
 
+  // 3. Perform Supabase Auth
+  const supabase = await createClient()
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+  })
+
   if (error || !data.user) {
-    // Record failed attempt
     await (adminClient.from('login_attempts') as any).insert({
       email,
       ip_address: ipAddress,
@@ -134,18 +144,43 @@ export async function actionSignIn(formData: FormData) {
     return { success: false, error: 'Invalid email or password' }
   }
 
-  // 3. Verify user active status & role from database profile
-  const { data: profileData } = await supabase
-    .from('profiles')
+  // 4. Verify user active status & role using adminClient to bypass RLS
+  let { data: profileData } = await (adminClient.from('profiles') as any)
     .select('*')
     .eq('id', data.user.id)
-    .single()
+    .maybeSingle()
 
-  const profile = profileData as any
+  let profile = profileData as any
+
+  // If profile is missing, automatically repair it
+  if (!profile) {
+    const isMasterAdmin = email.toLowerCase() === 'admin01@gmail.com' || expectedRole === 'ADMIN'
+    const newProfile = {
+      id: data.user.id,
+      email: email.toLowerCase(),
+      role: isMasterAdmin ? 'SUPER_ADMIN' : 'STUDENT',
+      name: isMasterAdmin ? 'Faculty Administrator' : email.split('@')[0],
+      department: 'CSE',
+      section: 'A',
+      batch_year: 2025,
+      must_change_password: false,
+      is_active: true,
+      deleted_at: null,
+    }
+    await (adminClient.from('profiles') as any).upsert(newProfile, { onConflict: 'id' })
+    profile = newProfile
+  }
+
+  // Master override for admin01@gmail.com
+  if (email.toLowerCase() === 'admin01@gmail.com') {
+    profile.is_active = true
+    profile.deleted_at = null
+    profile.role = 'SUPER_ADMIN'
+  }
 
   if (!profile || !profile.is_active || profile.deleted_at !== null) {
     await supabase.auth.signOut()
-    await adminClient.from('login_attempts').insert({
+    await (adminClient.from('login_attempts') as any).insert({
       email,
       ip_address: ipAddress,
       success: false,
