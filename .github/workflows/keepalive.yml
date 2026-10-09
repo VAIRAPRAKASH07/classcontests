@@ -1,0 +1,15 @@
+name: ClassCode Tracker - GitHub Scheduled Workflow Keep-Alive
+
+on:
+  schedule:
+    - cron: '0 0 1 * *' # Monthly on the 1st
+  workflow_dispatch:
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Keep-Alive Ping
+        uses: gautamkrishnar/keepalive-workflow@v2
+        with:
+          commit_message: "chore(ci): monthly keep-alive ping to prevent GitHub workflow auto-disable"

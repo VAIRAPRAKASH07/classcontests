@@ -1,0 +1,43 @@
+name: ClassCode Tracker - Weekly Encrypted Database Backup
+
+on:
+  schedule:
+    - cron: '0 0 * * 0' # Every Sunday midnight
+  workflow_dispatch:
+
+jobs:
+  encrypted-backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Codebase
+        uses: actions/checkout@v4
+
+      - name: Install Postgres Client Tools
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client gnupg
+
+      - name: Run pg_dump via Supabase Session Pooler (Port 5432)
+        env:
+          PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          DB_HOST: ${{ secrets.SUPABASE_DB_SESSION_HOST }}
+          DB_USER: ${{ secrets.SUPABASE_DB_USER }}
+          DB_NAME: postgres
+        run: |
+          mkdir -p backups
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+          pg_dump -h $DB_HOST -p 5432 -U $DB_USER -d $DB_NAME --clean --if-exists -F p > backups/db_dump_${TIMESTAMP}.sql
+
+      - name: Encrypt Backup with GPG (AES-256)
+        env:
+          PASSPHRASE: ${{ secrets.BACKUP_ENCRYPTION_PASSPHRASE }}
+        run: |
+          for file in backups/*.sql; do
+            gpg --symmetric --cipher-algo AES256 --batch --passphrase "$PASSPHRASE" "$file"
+            rm "$file"
+          done
+
+      - name: Upload Private Encrypted Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: encrypted-db-backups
+          path: backups/*.gpg
+          retention-days: 90
